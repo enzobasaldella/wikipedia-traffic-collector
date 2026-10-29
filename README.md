@@ -1,162 +1,109 @@
-# Wikipedia VPN Traffic Capture
+# Wikipedia VPN Traffic Collector
 
-This project is part of a research workflow focused on **encrypted traffic classification using Machine Learning**.
+Captures VPN-encrypted network traffic while Selenium generates a configurable browsing workload on Portuguese Wikipedia. The resulting PCAP files are intended for authorized encrypted-traffic research and dataset construction.
 
-The objective is to capture VPN-encrypted traffic (OpenVPN by default) while generating reproducible and configurable browsing behavior on Wikipedia.  
+> [!IMPORTANT]
+> Capture only traffic and networks for which you have explicit authorization. Packet capture normally requires root privileges.
 
----
+## How it works
 
-## Overview
+Each cycle starts two coordinated activities:
 
-This script:
+1. Scapy captures packets from a selected interface using a BPF filter.
+2. Selenium opens random Wikipedia articles, reads, scrolls, and optionally follows internal links.
 
-- Starts a packet capture thread using Scapy.
-- Applies a BPF filter (default: `udp port 1194`).
-- Automates Wikipedia browsing using Selenium.
-- Generates timestamped PCAP files.
-- Allows configurable "human-like" navigation patterns.
-
-The design ensures reproducibility and structured dataset generation for ML experiments.
-
-
-## Features
-
-- Reliable capture stop mechanism (works even during traffic silence).
-- Configurable browsing behavior:
-  - Reading time
-  - Scroll intensity
-  - Scroll distance
-  - Internal link click probability
-- Multi-cycle execution with automatic PCAP separation.
-- Clean, organized logging output.
-
-
+The capture loop uses short polling intervals so it can stop even when the interface is idle. Capture failures are propagated to the main process and produce a nonzero exit status.
 
 ## Requirements
 
-### System
+- Linux
+- Python 3.10 or newer
+- Google Chrome or Chromium
+- A compatible ChromeDriver available on `PATH`
+- Root privileges for packet capture
 
-- Linux (recommended)
-- Root privileges to capture packets
-
-### Python Packages
-
-Install dependencies:
+Create an isolated environment and install the Python packages:
 
 ```bash
-pip install scapy selenium
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-### Chrome + ChromeDriver
-
-You must have:
-
-- Google Chrome (or Chromium)
-- ChromeDriver available in PATH
-
-Verify:
+Check the browser tools before collecting data:
 
 ```bash
 chromedriver --version
 google-chrome --version
 ```
 
----
-
-## How to Run
-
-The script is executed via CLI (Command Line Interface).
-
-General syntax:
+## Usage
 
 ```bash
-sudo python3 wikipedia_traffic_collector.py [OPTIONS]
+sudo .venv/bin/python wikipedia_traffic_collector.py [OPTIONS]
 ```
 
-### Core Parameters
+Common options:
 
-| Flag | Description |
-|------|------------|
-| `-i`, `--interface` | Network interface to sniff (e.g., enp0s8) |
-| `-c`, `--cycles` | Number of capture cycles |
-| `-p`, `--pages` | Number of random Wikipedia pages per cycle |
-| `--filter` | BPF filter (default: `udp port 1194`) |
-| `--headless` | Run browser without GUI |
-| `--outdir` | Output directory for PCAP files |
-| `--prefix` | Prefix for generated PCAP filenames |
+| Option | Default | Description |
+| --- | --- | --- |
+| `-i`, `--interface` | `enp0s8` | Network interface to capture |
+| `--filter` | `udp port 1194` | BPF capture filter |
+| `-c`, `--cycles` | `1` | Number of capture cycles |
+| `-p`, `--pages` | `10` | Random articles per cycle |
+| `--outdir` | `captures` | PCAP output directory |
+| `--headless` | disabled | Run Chrome without a visible window |
+| `--seed` | unset | Seed for repeatable random decisions |
 
+Behavior options:
 
-### Behavior Parameters (Human-like Control)
+| Option | Description |
+| --- | --- |
+| `--read-min`, `--read-max` | Reading-time interval in seconds |
+| `--scrolls-min`, `--scrolls-max` | Scroll-count interval per page |
+| `--scroll-px-min`, `--scroll-px-max` | Scroll-distance interval in pixels |
+| `--click-prob` | Probability of following an internal link (`0.0`–`1.0`) |
+| `--max-clicks` | Maximum internal links followed per page |
 
-| Flag | Description |
-|------|------------|
-| `--read-min` | Minimum reading time per page (seconds) |
-| `--read-max` | Maximum reading time per page (seconds) |
-| `--scrolls-min` | Minimum number of scrolls per page |
-| `--scrolls-max` | Maximum number of scrolls per page |
-| `--scroll-px-min` | Minimum scroll distance in pixels |
-| `--scroll-px-max` | Maximum scroll distance in pixels |
-| `--click-prob` | Probability (0.0–1.0) of clicking an internal Wikipedia link |
-| `--max-clicks` | Maximum number of internal link clicks per page |
+Run `python wikipedia_traffic_collector.py --help` for the complete reference.
 
-## Example
-
-Run a single cycle with 10 pages:
+Example:
 
 ```bash
-sudo python3 wikipedia_traffic_collector.py -i enp0s8 -c 1 -p 10
+sudo .venv/bin/python wikipedia_traffic_collector.py \
+  --interface enp0s8 \
+  --cycles 3 \
+  --pages 15 \
+  --read-min 5 \
+  --read-max 12 \
+  --scrolls-min 2 \
+  --scrolls-max 5 \
+  --click-prob 0.3 \
+  --max-clicks 2 \
+  --seed 2026 \
+  --headless
 ```
 
-This configuration:
+PCAP files are written as `captures/wiki_traffic_<timestamp>_c<cycle>.pcap`.
 
-- Capture traffic on interface `enp0s8`
-- Execute 1 cycle
-- Open 10 random Wikipedia pages
-- Save one PCAP file
+> [!NOTE]
+> A seed repeats the script's pseudo-random choices, but it cannot make live web content, browser timing, or network conditions deterministic. Record the command, software versions, VPN configuration, and collection time with every dataset.
 
-
----
-
-### Complete Example
+## Validation
 
 ```bash
-sudo python3 wikipedia_traffic_collector.py \
-    -i enp0s8 \
-    -c 3 \
-    -p 15 \
-    --read-min 5 --read-max 12 \
-    --scrolls-min 2 --scrolls-max 5 \
-    --scroll-px-min 400 --scroll-px-max 1000 \
-    --click-prob 0.3 \
-    --max-clicks 1 \
-    --headless
+sh tests/test_cli.sh
 ```
 
-This configuration:
+The validation checks Python syntax, command-line help, and rejection of invalid ranges. It does not start a browser or capture packets.
 
-- Runs 3 capture cycles
-- Opens 15 pages per cycle
-- Simulates reading between 5 and 12 seconds
-- Performs 2–5 scrolls per page
-- Scroll distance varies between 400–1000 pixels
-- Has a 30% chance of clicking one internal link
-- Runs without opening a visible browser window
+## Project structure
 
-This produces a more realistic browsing pattern and increases traffic variability.
-
----
-
-## Experimental Recommendation
-
-For reproducible datasets:
-
-- Keep behavior parameters constant across runs.
-- Vary only one parameter at a time when conducting controlled experiments.
-- Document CLI parameters used for each dataset.
-
----
-
-## Disclaimer
-
-This tool is intended for academic and authorized research purposes only.  
-Only capture traffic on networks and systems where you have explicit permission.
+```text
+.
+├── wikipedia_traffic_collector.py
+├── requirements.txt
+├── tests/test_cli.sh
+└── captures/                    # Generated locally; ignored by Git
+```
